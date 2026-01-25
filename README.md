@@ -4,8 +4,8 @@ This project addresses the need to select a limited number of UAS zones starting
 
 The project contains two Python programs:
 
-- **`filter_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius.
-- **`map_geojson.py`**: displays the result of the selection operation on a map.
+* **`filter_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius.
+* **`map_geojson.py`**: displays the result of the selection operation on a map.
 
 ## Usage
 
@@ -13,14 +13,33 @@ The project contains two Python programs:
 2. Install the dependencies listed in `requirements.txt`.
 3. Run the scripts.
 
-### `filter_geojson.py`
+## `filter_geojson.py`
 
 This script requires as input:
-- the name of the file distributed by the national authority,
-- the coordinates of the reference point,
-- the search radius (in kilometers).
 
-#### Example
+* the name of the file distributed by the national authority,
+* the coordinates of the reference point,
+* the search radius (in kilometers).
+
+### Example
 
 ```bash
 python filter_geojson.py ita_zones.json "45°27'55\"" "9°11'20\"" 30
+```
+
+This command selects the UAS zones within 30 km of the center of Milan.
+
+The output file generated is:
+
+```
+filtered.json
+```
+
+## `map_geojson.py`
+
+This script plots the zones included in `filtered.json` on an interactive map, generating the file:
+
+```
+map.html
+```
+
