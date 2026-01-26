@@ -7,6 +7,7 @@ The project contains two Python programs:
 * **`filter_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius.
 * **`map_geojson.py`**: displays the result of the selection operation on a map.
 * **`filter_map_geojson.py`**: combines the capabilities of the two programs.
+* **`interactive_uas_filter.py`**: allows to select on an interactive map the area to be extracted.
 
 
 ## Usage
@@ -71,3 +72,16 @@ python filter_map_geojson.py ita_zones.json "45 27 55N" "9 11 20E" 30
 
 This command selects the UAS zones within 30 km of the center of Milan and generates the filterend json output and the map file.
 
+## `interactive_uas_filter.py`
+
+This script requires as input:
+
+* the name of the file distributed by the national authority
+
+It opens a browser showing an interactive map of all the UAS zones included into the JSON file. A button on the left side allows to start drawing a circle, slecting a point and drawing the radius. After drawing the circle, the button Save creates the filtered.json file with the UAS zones intersecting the circle. The map is updated, showing these zones. The Reset button allows to relaoad the initial map and to draw a different circle. At the end, you can quit the browser and stop the python script with Ctrl+C.
+
+The output file generated is:
+
+```
+filtered.json
+```
