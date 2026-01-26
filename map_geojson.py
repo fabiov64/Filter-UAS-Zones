@@ -20,7 +20,7 @@ def get_color(lower_limit, vertical_ref):
 
 
 # Carica GeoJSON
-with open(INPUT_FILE, "r", encoding="utf-8") as f:
+with open(INPUT_FILE, "r", encoding="utf-8-sig") as f:
     data = json.load(f)
 
 zones = []
