@@ -78,7 +78,7 @@ This script requires as input:
 
 * the name of the file distributed by the national authority
 
-It opens a browser showing an interactive map of all the UAS zones included into the JSON file. A button on the left side allows to start drawing a circle, slecting a point and drawing the radius. After drawing the circle, the button Save creates the filtered.json file with the UAS zones intersecting the circle. The map is updated, showing these zones. The Reset button allows to relaoad the initial map and to draw a different circle. At the end, you can quit the browser and stop the python script with Ctrl+C.
+It opens a browser showing an interactive map of all the UAS zones included into the JSON file. A button on the left side allows to start drawing a circle, selecting a point and drawing the radius. After drawing the circle, the button Save creates the filtered.json file with the UAS zones intersecting the circle. The map is updated, showing these zones. The Reset button allows to relaoad the initial map and to draw a different circle. At the end, you can quit the browser and stop the python script with Ctrl+C.
 
 The output file generated is:
 
