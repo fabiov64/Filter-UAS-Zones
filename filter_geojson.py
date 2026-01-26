@@ -45,7 +45,7 @@ def filter_geojson_by_radius(
     latitude = dms_to_decimal(latitude_dms)
     longitude = dms_to_decimal(longitude_dms)
 
-    with open(input_geojson_path, "r", encoding="utf-8") as f:
+    with open(input_geojson_path, "r", encoding="utf-8-sig") as f:
         geojson = json.load(f)
 
     transformer = Transformer.from_crs(
