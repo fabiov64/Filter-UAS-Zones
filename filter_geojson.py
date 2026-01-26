@@ -66,7 +66,10 @@ def filter_geojson_by_radius(
             polygon_m = transform(transformer, polygon)
 
             if polygon_m.intersects(search_area_m):
-                filtered_features.append(feature)
+                # Rimuovo 'applicability' dalla feature
+                feature_copy = feature.copy()
+                feature_copy.pop("applicability", None)
+                filtered_features.append(feature_copy)
                 break
 
     filtered_geojson = {
