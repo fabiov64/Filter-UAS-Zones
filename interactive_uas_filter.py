@@ -43,19 +43,34 @@ def filter_by_circle(geojson, lat, lon, radius_m):
     center = Point(lon, lat)
     center_m = transform(transformer, center)
     search_area = center_m.buffer(radius_m)
+
     filtered = []
+
     for feature in geojson["features"]:
         for geom in feature["geometry"]:
             polygon = shape(geom["horizontalProjection"])
             polygon_m = transform(transformer, polygon)
+
             if polygon_m.intersects(search_area):
-                # Rimuovo 'applicability' dalla feature
                 feature_copy = feature.copy()
-                feature_copy.pop("applicability", None)
+
+                # 🔹 ED-269 / RC compatibility handling
+                app = feature_copy.get("applicability")
+                if app and isinstance(app, list):
+                    for a in app:
+                        if "startDateTime" in a or "endDateTime" in a:
+                            feature_copy.pop("applicability", None)
+                            feature_copy["description"] = "[Temporal window removed for RC compatibility]"
+                            break
+
                 filtered.append(feature_copy)
                 break
-    return {**geojson, "features": filtered}
 
+    return {
+        "type": "FeatureCollection",
+        **{k: v for k, v in geojson.items() if k != "features"},
+        "features": filtered
+    }
 
 # ==================================================
 def generate_map_html(geojson):

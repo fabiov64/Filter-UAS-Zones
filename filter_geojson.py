@@ -66,14 +66,26 @@ def filter_geojson_by_radius(
             polygon_m = transform(transformer, polygon)
 
             if polygon_m.intersects(search_area_m):
-                # Rimuovo 'applicability' dalla feature
                 feature_copy = feature.copy()
-                feature_copy.pop("applicability", None)
+
+                # 🔹 ED-269 / RC compatibility:
+                # rimuovi applicability SOLO se contiene date
+                app = feature_copy.get("applicability")
+                if app and isinstance(app, list):
+                    for a in app:
+                        if "startDateTime" in a or "endDateTime" in a:
+                            feature_copy.pop("applicability", None)
+                            feature_copy["description"] = (
+                                "[Temporal window removed for RC compatibility]"
+                            )
+                            break
+
                 filtered_features.append(feature_copy)
                 break
 
     filtered_geojson = {
-        **geojson,
+        "type": "FeatureCollection",
+        **{k: v for k, v in geojson.items() if k != "features"},
         "features": filtered_features
     }
 

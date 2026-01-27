@@ -64,14 +64,12 @@ def get_color(lower_limit, vertical_ref):
 # Main processing
 # ----------------------------
 def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
-    # Convert coordinates
     latitude = dms_to_decimal(latitude_dms)
     longitude = dms_to_decimal(longitude_dms)
 
     with open(input_geojson_path, "r", encoding="utf-8-sig") as f:
         geojson = json.load(f)
 
-    # Coordinate transformer (WGS84 → Web Mercator)
     transformer = Transformer.from_crs(
         "EPSG:4326", "EPSG:3857", always_xy=True
     ).transform
@@ -84,21 +82,35 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
 
     filtered_features = []
 
+    # ----------------------------
     # Filter zones
+    # ----------------------------
     for feature in geojson.get("features", []):
         for geom in feature.get("geometry", []):
             polygon = shape(geom["horizontalProjection"])
             polygon_m = transform(transformer, polygon)
 
             if polygon_m.intersects(search_area_m):
-                # Rimuovo 'applicability' dalla feature
                 feature_copy = feature.copy()
-                feature_copy.pop("applicability", None)
+
+                # 🔹 ED-269 / RC compatibility:
+                # rimuovi applicability SOLO se contiene date
+                app = feature_copy.get("applicability")
+                if app and isinstance(app, list):
+                    for a in app:
+                        if "startDateTime" in a or "endDateTime" in a:
+                            feature_copy.pop("applicability", None)
+                            feature_copy["description"] = (
+                                "[Temporal window removed for RC compatibility]"
+                            )
+                            break
+
                 filtered_features.append(feature_copy)
                 break
 
     filtered_geojson = {
-        **geojson,
+        "type": "FeatureCollection",
+        **{k: v for k, v in geojson.items() if k != "features"},
         "features": filtered_features
     }
 
@@ -132,7 +144,6 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
         print("⚠ Nessuna zona da visualizzare sulla mappa.")
         return
 
-    # Draw higher zones first, lower zones on top
     zones.sort(key=lambda z: z["lower"], reverse=True)
 
     shapes = [shape(z["geometry"]) for z in zones]
@@ -146,7 +157,6 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
 
     for z in zones:
         color = get_color(z["lower"], z["vref"])
-
         label = f"{z['name']} – Lower {z['lower']} {z['vref']}"
 
         popup_html = f"""
