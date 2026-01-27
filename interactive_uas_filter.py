@@ -13,7 +13,6 @@ import folium
 from folium.plugins import Draw
 
 # ==================================================
-MAP_FILE = "map.html"
 FILTERED_FILE = "filtered.json"
 
 ORIGINAL_GEOJSON = None
