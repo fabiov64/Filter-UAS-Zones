@@ -12,6 +12,8 @@ from shapely.ops import transform
 from pyproj import Transformer
 import folium
 from folium.plugins import Draw
+from pyproj import Geod
+geod = Geod(ellps="WGS84")
 
 # ==================================================
 
@@ -41,19 +43,42 @@ def get_color(lower, vref):
         return "purple"
 
 # ==================================================
+
+def geometry_matches_search_geodetic(polygon, center_lat, center_lon, radius_m):
+    try:
+        # ripara geometrie
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+
+        centroid = polygon.centroid
+
+        _, _, dist = geod.inv(
+            center_lon,
+            center_lat,
+            centroid.x,
+            centroid.y
+        )
+
+        return dist <= radius_m
+
+    except Exception:
+        return False
+
+
+# ==================================================
 def filter_by_circle(geojson, lat, lon, radius_m):
     center = Point(lon, lat)
     center_m = transform(transformer, center)
-    search_area = center_m.buffer(radius_m)
+    search_area = center_m.buffer(radius_m + 2)
 
     filtered = []
 
     for feature in geojson.get("features", []):
         for geom in feature.get("geometry", []):
             polygon = shape(geom["horizontalProjection"])
-            polygon_m = transform(transformer, polygon)
-
-            if polygon_m.intersects(search_area):
+        
+            if geometry_matches_search_geodetic(polygon, lat, lon, radius_m):
+           
                 feature_copy = feature.copy()
 
                 # 🔹 ED-269 / RC compatibility handling
@@ -66,6 +91,7 @@ def filter_by_circle(geojson, lat, lon, radius_m):
                             break
 
                 filtered.append(feature_copy)
+
                 break
 
     # ==================================================
