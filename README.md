@@ -78,6 +78,12 @@ This script requires as input:
 
 * the name of the file distributed by the national authority
 
+### Example
+
+```bash
+python interactive_uas_filter.py ita_zones.json
+```
+
 It opens a browser showing an interactive map of all the UAS zones included into the JSON file. A button on the left side allows to start drawing a circle, selecting a point and drawing the radius. After drawing the circle, the button Save creates the filtered.json file with the UAS zones intersecting the circle. The map is updated, showing these zones. The Reset button allows to relaoad the initial map and to draw a different circle. The Quit button closes the browser and the script.
 
 The output file generated is:
