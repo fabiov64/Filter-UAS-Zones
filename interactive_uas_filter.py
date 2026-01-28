@@ -87,7 +87,7 @@ def filter_by_circle(geojson, lat, lon, radius_m):
                     for a in app_list:
                         if "startDateTime" in a or "endDateTime" in a:
                             feature_copy.pop("applicability", None)
-                            feature_copy["description"] = "[Temporal window removed for RC compatibility]"
+                            feature_copy["description"] = "[Date/Time removed for RC compatibility]"
                             break
 
                 filtered.append(feature_copy)
@@ -269,7 +269,23 @@ def filter_route():
         data["radius"]
     )
     with open(FILTERED_FILE, "w", encoding="utf-8") as f:
-        json.dump(CURRENT_GEOJSON, f, indent=2, ensure_ascii=False)
+#       json.dump(CURRENT_GEOJSON, f, indent=2, ensure_ascii=False)
+#       json.dump(CURRENT_GEOJSON, f, ensure_ascii=False, separators=(",", ":")
+
+
+        json_str = json.dumps(
+           CURRENT_GEOJSON,
+           ensure_ascii=False,
+           separators=(",", ":")
+         )
+
+        # newline dopo ogni feature
+        json_str = json_str.replace("},{", "},\n{")
+ 
+        f.write(json_str)
+
+#    )
+
     return jsonify({"status": "ok"})
 
 @app.route("/reset", methods=["POST"])
