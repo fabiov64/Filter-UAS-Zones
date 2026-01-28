@@ -4,8 +4,9 @@ import json
 import argparse
 import threading
 import webbrowser
-
-from flask import Flask, request, jsonify, render_template_string
+import os
+import signal
+from flask import Flask, request, jsonify
 from shapely.geometry import shape, Point, GeometryCollection
 from shapely.ops import transform
 from pyproj import Transformer
@@ -13,6 +14,7 @@ import folium
 from folium.plugins import Draw
 
 # ==================================================
+
 FILTERED_FILE = "filtered.json"
 
 ORIGINAL_GEOJSON = None
@@ -20,6 +22,7 @@ CURRENT_GEOJSON = None  # contiene dati filtrati
 
 app = Flask(__name__)
 
+# Trasformazione WGS84 -> Web Mercator per buffer in metri
 transformer = Transformer.from_crs(
     "EPSG:4326", "EPSG:3857", always_xy=True
 ).transform
@@ -45,8 +48,8 @@ def filter_by_circle(geojson, lat, lon, radius_m):
 
     filtered = []
 
-    for feature in geojson["features"]:
-        for geom in feature["geometry"]:
+    for feature in geojson.get("features", []):
+        for geom in feature.get("geometry", []):
             polygon = shape(geom["horizontalProjection"])
             polygon_m = transform(transformer, polygon)
 
@@ -54,9 +57,9 @@ def filter_by_circle(geojson, lat, lon, radius_m):
                 feature_copy = feature.copy()
 
                 # 🔹 ED-269 / RC compatibility handling
-                app = feature_copy.get("applicability")
-                if app and isinstance(app, list):
-                    for a in app:
+                app_list = feature_copy.get("applicability")
+                if app_list and isinstance(app_list, list):
+                    for a in app_list:
                         if "startDateTime" in a or "endDateTime" in a:
                             feature_copy.pop("applicability", None)
                             feature_copy["description"] = "[Temporal window removed for RC compatibility]"
@@ -65,20 +68,48 @@ def filter_by_circle(geojson, lat, lon, radius_m):
                 filtered.append(feature_copy)
                 break
 
-    return {
-        "type": "FeatureCollection",
+    # ==================================================
+    # Aggiornamento title e description
+    geojson_copy = {
         **{k: v for k, v in geojson.items() if k != "features"},
         "features": filtered
     }
+
+    # Aggiorna il title aggiungendo " - cropped"
+    if "title" in geojson_copy:
+        geojson_copy["title"] = geojson_copy["title"] + " - cropped"
+
+    # Conta le features filtrate
+    geozones_count = len(filtered)
+    atm09_count = sum(
+        1 for f in filtered if f.get("otherReasonInfo") == "ATM09"
+    )
+    nfz_count = sum(
+        1 for f in filtered if f.get("otherReasonInfo") == "NFZ"
+    )
+    notam_count = sum(
+        1 for f in filtered if f.get("otherReasonInfo") == "NOTAM"
+    )
+
+ 
+   # Aggiorna description
+    if "description" in geojson_copy:
+       # Prende solo il testo originale prima di eventuali vecchie info GeoZones
+         desc_original = geojson_copy["description"].split(" - GeoZones")[0].strip()
+         geojson_copy["description"] = (
+           f"{desc_original} - cropped - GeoZones[{geozones_count}] - ATM09[{atm09_count}]/NFZ[{nfz_count}]/NOTAM[{notam_count}]"
+       )
+
+    return geojson_copy
 
 # ==================================================
 def generate_map_html(geojson):
     zones = []
     shapes = []
 
-    for feature in geojson["features"]:
+    for feature in geojson.get("features", []):
         name = feature.get("name", "Unnamed zone")
-        for geom in feature["geometry"]:
+        for geom in feature.get("geometry", []):
             zones.append({
                 "name": name,
                 "geometry": geom["horizontalProjection"],
@@ -135,26 +166,25 @@ def generate_map_html(geojson):
         <title>UAS Map</title>
         <style>
             #map {{ position: relative; width: 100%; height: 90vh; }}
-            #save-btn, #reset-btn {{
+            #save-btn, #reset-btn, #quit-btn {{
                 position: absolute;
                 top: 10px;
-                left: 10px;
                 z-index: 9999;
                 background: white;
                 padding: 6px 10px;
                 border: 1px solid gray;
                 cursor: pointer;
                 font-weight: bold;
-                margin-right: 5px;
             }}
-            #reset-btn {{
-                left: 80px; /* sposta leggermente a destra del save */
-            }}
+            #save-btn {{ left: 10px; }}
+            #reset-btn {{ left: 80px; }}
+            #quit-btn {{ left: 170px; }}  /* spostato a destra per non coprire Reset */
         </style>
     </head>
     <body>
         <div id="save-btn">💾 Save</div>
         <div id="reset-btn">🔄 Reset</div>
+        <div id="quit-btn">❌ Quit</div>
         {map_html}
         <script>
             let drawnCircle = null;
@@ -182,6 +212,13 @@ def generate_map_html(geojson):
 
             document.getElementById('reset-btn').onclick = function() {{
                 fetch("/reset", {{ method: "POST" }}).then(() => window.location.reload());
+            }};
+
+            document.getElementById('quit-btn').onclick = function() {{
+                fetch("/quit", {{ method: "POST" }}).then(() => {{
+                    alert('Chiusura in corso...');
+                    window.close();  // chiude il browser
+                }});
             }};
         </script>
     </body>
@@ -215,6 +252,14 @@ def reset_route():
     CURRENT_GEOJSON = None
     return jsonify({"status": "ok"})
 
+@app.route("/quit", methods=["POST"])
+def quit_route():
+    # Chiude il server Flask e termina lo script
+    def shutdown():
+        os.kill(os.getpid(), signal.SIGINT)
+    threading.Thread(target=shutdown).start()
+    return jsonify({"status": "quitting"})
+
 # ==================================================
 def main():
     global ORIGINAL_GEOJSON
@@ -230,5 +275,6 @@ def main():
 
     app.run(debug=False, use_reloader=False)
 
+# ==================================================
 if __name__ == "__main__":
     main()
