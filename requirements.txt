@@ -1,7 +1,4 @@
-shapely
-pyproj
-folium
-flask
-
-
-
+Flask==3.1.2
+folium==0.20.0
+pyproj==3.7.2
+Shapely==2.1.2

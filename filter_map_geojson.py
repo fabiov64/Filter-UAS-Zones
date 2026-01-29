@@ -6,28 +6,23 @@ import re
 
 from shapely.geometry import shape, Point, GeometryCollection
 from shapely.ops import transform
-from pyproj import Transformer
+from pyproj import Transformer, Geod
 import folium
 
+geod = Geod(ellps="WGS84")
 
 OUTPUT_GEOJSON = "filtered.json"
 OUTPUT_MAP = "map.html"
-
 
 # ----------------------------
 # Utility: DMS → Decimal
 # ----------------------------
 def dms_to_decimal(dms: str) -> float:
-    """
-    Convert DMS coordinates (e.g. 45°50'34") to decimal degrees.
-    Supports N/S/E/W.
-    """
     pattern = r"""(?P<deg>-?\d+)[°\s]+
                   (?P<min>\d+)[\'\s]+
                   (?P<sec>\d+(?:\.\d+)?)[\"\s]*
                   (?P<dir>[NSEW])?"""
     match = re.match(pattern, dms.strip(), re.VERBOSE | re.IGNORECASE)
-
     if not match:
         raise ValueError(f"Invalid DMS format: {dms}")
 
@@ -37,12 +32,10 @@ def dms_to_decimal(dms: str) -> float:
     direction = match.group("dir")
 
     decimal = abs(deg) + minutes / 60 + seconds / 3600
-
     if deg < 0 or (direction and direction.upper() in ("S", "W")):
         decimal *= -1
 
     return decimal
-
 
 # ----------------------------
 # Map coloring logic
@@ -59,6 +52,24 @@ def get_color(lower_limit, vertical_ref):
     else:
         return "purple"
 
+# ----------------------------
+# Geodetic match (IDENTICO)
+# ----------------------------
+def geometry_matches_search_geodetic(polygon, center_lat, center_lon, radius_m):
+    try:
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+
+        centroid = polygon.centroid
+        _, _, dist = geod.inv(
+            center_lon,
+            center_lat,
+            centroid.x,
+            centroid.y
+        )
+        return dist <= radius_m
+    except Exception:
+        return False
 
 # ----------------------------
 # Main processing
@@ -66,57 +77,75 @@ def get_color(lower_limit, vertical_ref):
 def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
     latitude = dms_to_decimal(latitude_dms)
     longitude = dms_to_decimal(longitude_dms)
+    radius_m = radius_km * 1000
 
     with open(input_geojson_path, "r", encoding="utf-8-sig") as f:
         geojson = json.load(f)
 
-    transformer = Transformer.from_crs(
-        "EPSG:4326", "EPSG:3857", always_xy=True
-    ).transform
-
-    center_point = Point(longitude, latitude)
-    center_point_m = transform(transformer, center_point)
-
-    radius_m = radius_km * 1000
-    search_area_m = center_point_m.buffer(radius_m)
-
     filtered_features = []
 
     # ----------------------------
-    # Filter zones
+    # Filter zones (LOGICA IDENTICA)
     # ----------------------------
     for feature in geojson.get("features", []):
         for geom in feature.get("geometry", []):
             polygon = shape(geom["horizontalProjection"])
-            polygon_m = transform(transformer, polygon)
 
-            if polygon_m.intersects(search_area_m):
+            if geometry_matches_search_geodetic(
+                polygon, latitude, longitude, radius_m
+            ):
                 feature_copy = feature.copy()
 
-                # 🔹 ED-269 / RC compatibility:
-                # rimuovi applicability SOLO se contiene date
+                # ED-269 / RC compatibility
                 app = feature_copy.get("applicability")
                 if app and isinstance(app, list):
                     for a in app:
                         if "startDateTime" in a or "endDateTime" in a:
                             feature_copy.pop("applicability", None)
                             feature_copy["description"] = (
-                                "[Temporal window removed for RC compatibility]"
+                                "[Date/Time removed for RC compatibility]"
                             )
                             break
 
                 filtered_features.append(feature_copy)
                 break
 
+    # ----------------------------
+    # Aggiorna title / description
+    # ----------------------------
     filtered_geojson = {
-        "type": "FeatureCollection",
         **{k: v for k, v in geojson.items() if k != "features"},
         "features": filtered_features
     }
 
-    # Save filtered GeoJSON
+    if "title" in filtered_geojson:
+        filtered_geojson["title"] += " - cropped"
+
+    geozones_count = len(filtered_features)
+    atm09_count = sum(1 for f in filtered_features if f.get("otherReasonInfo") == "ATM09")
+    nfz_count = sum(1 for f in filtered_features if f.get("otherReasonInfo") == "NFZ")
+    notam_count = sum(1 for f in filtered_features if f.get("otherReasonInfo") == "NOTAM")
+
+    if "description" in filtered_geojson:
+        desc_original = filtered_geojson["description"].split(" - GeoZones")[0].strip()
+        filtered_geojson["description"] = (
+            f"{desc_original} - cropped - "
+            f"GeoZones[{geozones_count}] - "
+            f"ATM09[{atm09_count}]/NFZ[{nfz_count}]/NOTAM[{notam_count}]"
+        )
+
+    # ----------------------------
+    # Scrittura filtered.json (IDENTICA)
+    # ----------------------------
+    json_str = json.dumps(
+        filtered_geojson,
+        ensure_ascii=False,
+        separators=(",", ":")
+    )
+    json_str = json_str.replace("},{", "},\n{")
+
     with open(OUTPUT_GEOJSON, "w", encoding="utf-8") as f:
-        json.dump(filtered_geojson, f, indent=2, ensure_ascii=False)
+        f.write(json_str)
 
     print(f"✔ File generato: {OUTPUT_GEOJSON}")
     print(f"✔ Feature incluse: {len(filtered_features)}")
@@ -126,10 +155,10 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
     # Map generation (folium)
     # ----------------------------
     zones = []
+    shapes = []
 
     for feature in filtered_features:
         name = feature.get("name", "Unnamed Zone")
-
         for geom in feature["geometry"]:
             zones.append({
                 "name": name,
@@ -139,14 +168,13 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
                 "upper": geom["upperLimit"],
                 "uref": geom["upperVerticalReference"]
             })
+            shapes.append(shape(geom["horizontalProjection"]))
 
     if not zones:
         print("⚠ Nessuna zona da visualizzare sulla mappa.")
         return
 
     zones.sort(key=lambda z: z["lower"], reverse=True)
-
-    shapes = [shape(z["geometry"]) for z in zones]
     centroid = GeometryCollection(shapes).centroid
 
     m = folium.Map(
@@ -158,7 +186,6 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
     for z in zones:
         color = get_color(z["lower"], z["vref"])
         label = f"{z['name']} – Lower {z['lower']} {z['vref']}"
-
         popup_html = f"""
         <b>{z['name']}</b><br>
         Lower limit: {z['lower']} {z['vref']}<br>
@@ -180,9 +207,8 @@ def process_geojson(input_geojson_path, latitude_dms, longitude_dms, radius_km):
     m.save(OUTPUT_MAP)
     print(f"✔ Mappa generata: {OUTPUT_MAP}")
 
-
 # ----------------------------
-# CLI
+# CLI (NON MODIFICATA)
 # ----------------------------
 def main():
     parser = argparse.ArgumentParser(
@@ -201,7 +227,6 @@ def main():
         longitude_dms=args.longitude,
         radius_km=args.radius
     )
-
 
 if __name__ == "__main__":
     main()
