@@ -8,7 +8,7 @@ The project contains two Python programs:
 * **`map_geojson.py`**: displays the result of the selection operation on a map. It creates a map.htm file thatcan be browsed
 * **`filter_map_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius. It creates a file containing the filtered UAS zones and a map.htm file that can be browsed.
 * **`interactive_uas_filter.py`**: allows to select on an interactive map the area to be extracted.
-* * **`compare.py`**: compares two files containing UAS zones, showing the differences.
+* **`compare.py`**: compares two files containing UAS zones, showing the differences.
 
 
 ## Usage
