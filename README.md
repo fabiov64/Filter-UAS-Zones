@@ -4,10 +4,11 @@ This project addresses the need to select a limited number of UAS zones starting
 
 The project contains two Python programs:
 
-* **`filter_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius.
-* **`map_geojson.py`**: displays the result of the selection operation on a map.
-* **`filter_map_geojson.py`**: combines the capabilities of the two programs.
+* **`filter_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius. It creates a file containing the filtered UAS zones.
+* **`map_geojson.py`**: displays the result of the selection operation on a map. It creates a map.htm file thatcan be browsed
+* **`filter_map_geojson.py`**: starting from the complete JSON file, selects the UAS zones that are located near a given point and within a specified radius. It creates a file containing the filtered UAS zones and a map.htm file that can be browsed.
 * **`interactive_uas_filter.py`**: allows to select on an interactive map the area to be extracted.
+* * **`compare.py`**: compares two files containing UAS zones, showing the differences.
 
 
 ## Usage
@@ -91,3 +92,17 @@ The output file generated is:
 ```
 filtered.json
 ```
+
+## `compare.py`
+
+This script requires as input:
+
+* the name of two json files containing UAS zones
+
+### Example
+
+```bash
+python compare.py ita_zones.json filtered.json
+```
+
+it show the difference between the files: the features included in one file and missing in the other one.
