@@ -6,6 +6,7 @@ import threading
 import webbrowser
 import os
 import signal
+import subprocess
 from flask import Flask, request, jsonify
 from shapely.geometry import shape, Point, GeometryCollection
 from shapely.ops import transform
@@ -13,6 +14,7 @@ from pyproj import Transformer
 import folium
 from folium.plugins import Draw
 from pyproj import Geod
+
 geod = Geod(ellps="WGS84")
 
 # ==================================================
@@ -20,7 +22,8 @@ geod = Geod(ellps="WGS84")
 FILTERED_FILE = "filtered.json"
 
 ORIGINAL_GEOJSON = None
-CURRENT_GEOJSON = None  # contiene dati filtrati
+CURRENT_GEOJSON = None
+INPUT_DIR = None  # cartella del file di input
 
 app = Flask(__name__)
 
@@ -46,7 +49,6 @@ def get_color(lower, vref):
 
 def geometry_matches_search_geodetic(polygon, center_lat, center_lon, radius_m):
     try:
-        # ripara geometrie
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
 
@@ -64,7 +66,6 @@ def geometry_matches_search_geodetic(polygon, center_lat, center_lon, radius_m):
     except Exception:
         return False
 
-
 # ==================================================
 def filter_by_circle(geojson, lat, lon, radius_m):
     center = Point(lon, lat)
@@ -76,56 +77,40 @@ def filter_by_circle(geojson, lat, lon, radius_m):
     for feature in geojson.get("features", []):
         for geom in feature.get("geometry", []):
             polygon = shape(geom["horizontalProjection"])
-        
+
             if geometry_matches_search_geodetic(polygon, lat, lon, radius_m):
-           
                 feature_copy = feature.copy()
 
-                # Normalizza startDateTime / endDateTime in applicability (Z -> +00:00)
+# Normalizza startDateTime / endDateTime in applicability (Z -> +00:00)
                 for app in feature_copy.get("applicability", []):
-                    for key in ("startDateTime", "endDateTime"):
-                       if key in app and isinstance(app[key], str) and app[key].endswith("Z"):
-                          app[key] = app[key].replace("Z", "+00:00")
-
-
+                   for key in ("startDateTime", "endDateTime"):
+                    if key in app and isinstance(app[key], str) and app[key].endswith("Z"):
+                      app[key] = app[key].replace("Z", "+00:00")
+               
                 filtered.append(feature_copy)
-
                 break
 
-    # ==================================================
-    # Aggiornamento title e description
     geojson_copy = {
         **{k: v for k, v in geojson.items() if k != "features"},
         "features": filtered
     }
 
-    # Aggiorna il title aggiungendo " - cropped"
     if "title" in geojson_copy:
-        geojson_copy["title"] = geojson_copy["title"] + " - cropped"
+        geojson_copy["title"] += " - cropped"
 
-    # Conta le features filtrate
     geozones_count = len(filtered)
-    atm09_count = sum(
-        1 for f in filtered if f.get("otherReasonInfo") == "ATM09"
-    )
-    nfz_count = sum(
-        1 for f in filtered if f.get("otherReasonInfo") == "NFZ"
-    )
-    notam_count = sum(
-        1 for f in filtered if f.get("otherReasonInfo") == "NOTAM"
-    )
+    atm09_count = sum(1 for f in filtered if f.get("otherReasonInfo") == "ATM09")
+    nfz_count = sum(1 for f in filtered if f.get("otherReasonInfo") == "NFZ")
+    notam_count = sum(1 for f in filtered if f.get("otherReasonInfo") == "NOTAM")
 
- 
-   # Aggiorna description
     if "description" in geojson_copy:
-       # Prende solo il testo originale prima di eventuali vecchie info GeoZones
-         desc_original = geojson_copy["description"].split(" - GeoZones")[0].strip()
-         geojson_copy["description"] = (
-           f"{desc_original} - cropped - GeoZones[{geozones_count}] - ATM09[{atm09_count}]/NFZ[{nfz_count}]/NOTAM[{notam_count}]"
-       )
+        desc_original = geojson_copy["description"].split(" - GeoZones")[0].strip()
+        geojson_copy["description"] = (
+            f"{desc_original} - cropped - GeoZones[{geozones_count}] "
+            f"- ATM09[{atm09_count}]/NFZ[{nfz_count}]/NOTAM[{notam_count}]"
+        )
 
     return geojson_copy
-
 # ==================================================
 def generate_map_html(geojson):
     zones = []
@@ -238,27 +223,28 @@ def generate_map_html(geojson):
                 fetch("/reset", {{ method: "POST" }}).then(() => window.location.reload());
             }};
 
+
+
             document.getElementById('quit-btn').onclick = function() {{
-                fetch("/quit", {{ method: "POST" }}).then(() => {{
-                    alert('Chiusura in corso...');
-                    window.close();  // chiude il browser
-                }});
+                fetch("/quit", {{ method: "POST" }});
             }};
+
         </script>
     </body>
     </html>
     """
     return full_html
 
+
 # ==================================================
 @app.route("/")
 def index():
-    global CURRENT_GEOJSON
     return generate_map_html(CURRENT_GEOJSON if CURRENT_GEOJSON else ORIGINAL_GEOJSON)
 
 @app.route("/filter", methods=["POST"])
 def filter_route():
     global CURRENT_GEOJSON
+
     data = request.json
     CURRENT_GEOJSON = filter_by_circle(
         ORIGINAL_GEOJSON,
@@ -266,23 +252,17 @@ def filter_route():
         data["lon"],
         data["radius"]
     )
-    with open(FILTERED_FILE, "w", encoding="utf-8") as f:
-#       json.dump(CURRENT_GEOJSON, f, indent=2, ensure_ascii=False)
-#       json.dump(CURRENT_GEOJSON, f, ensure_ascii=False, separators=(",", ":")
 
+    output_path = os.path.join(INPUT_DIR, FILTERED_FILE)
 
+    with open(output_path, "w", encoding="utf-8") as f:
         json_str = json.dumps(
-           CURRENT_GEOJSON,
-           ensure_ascii=False,
-           separators=(",", ":")
-         )
-
-        # newline dopo ogni feature
+            CURRENT_GEOJSON,
+            ensure_ascii=False,
+            separators=(",", ":")
+        )
         json_str = json_str.replace("},{", "},\n{")
- 
         f.write(json_str)
-
-#    )
 
     return jsonify({"status": "ok"})
 
@@ -294,20 +274,47 @@ def reset_route():
 
 @app.route("/quit", methods=["POST"])
 def quit_route():
-    # Chiude il server Flask e termina lo script
+
     def shutdown():
+        try:
+            # Chiude la finestra del browser in primo piano (Safari / Chrome / Firefox)
+            subprocess.run([
+                "osascript",
+                "-e",
+                'tell application "System Events" to keystroke "w" using command down'
+            ])
+        except Exception:
+            pass
+
+        # termina Flask
         os.kill(os.getpid(), signal.SIGINT)
+
     threading.Thread(target=shutdown).start()
     return jsonify({"status": "quitting"})
 
+
+# ==================================================
+def choose_file_macos():
+    script = '''
+    POSIX path of (choose file with prompt "Seleziona il file GeoJSON")
+    '''
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Nessun file selezionato")
+    return result.stdout.strip()
+
 # ==================================================
 def main():
-    global ORIGINAL_GEOJSON
-    parser = argparse.ArgumentParser()
-    parser.add_argument("file", help="GeoJSON UAS file")
-    args = parser.parse_args()
+    global ORIGINAL_GEOJSON, INPUT_DIR
 
-    with open(args.file, "r", encoding="utf-8-sig") as f:
+    input_file = choose_file_macos()
+    INPUT_DIR = os.path.dirname(input_file)
+
+    with open(input_file, "r", encoding="utf-8-sig") as f:
         ORIGINAL_GEOJSON = json.load(f)
 
     url = "http://127.0.0.1:5000"

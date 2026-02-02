@@ -82,17 +82,12 @@ def filter_geojson_by_radius(
                 polygon, latitude, longitude, radius_m
             ):
                 feature_copy = feature.copy()
-
-                # ED-269 / RC compatibility
-                app = feature_copy.get("applicability")
-                if app and isinstance(app, list):
-                    for a in app:
-                        if "startDateTime" in a or "endDateTime" in a:
-                            feature_copy.pop("applicability", None)
-                            feature_copy["description"] = (
-                                "[Date/Time removed for RC compatibility]"
-                            )
-                            break
+               
+                # Normalizza startDateTime / endDateTime in applicability (Z -> +00:00)
+                for app in feature_copy.get("applicability", []):
+                   for key in ("startDateTime", "endDateTime"):
+                     if key in app and isinstance(app[key], str) and app[key].endswith("Z"):
+                        app[key] = app[key].replace("Z", "+00:00")
 
                 filtered_features.append(feature_copy)
                 break
