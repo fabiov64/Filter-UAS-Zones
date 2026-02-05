@@ -81,14 +81,12 @@ def filter_by_circle(geojson, lat, lon, radius_m):
             if geometry_matches_search_geodetic(polygon, lat, lon, radius_m):
                 feature_copy = feature.copy()
 
-                app_list = feature_copy.get("applicability")
-                if app_list and isinstance(app_list, list):
-                    for a in app_list:
-                        if "startDateTime" in a or "endDateTime" in a:
-                            feature_copy.pop("applicability", None)
-                            feature_copy["description"] = "[Date/Time removed for RC compatibility]"
-                            break
-
+# Normalizza startDateTime / endDateTime in applicability (Z -> +00:00)
+                for app in feature_copy.get("applicability", []):
+                   for key in ("startDateTime", "endDateTime"):
+                    if key in app and isinstance(app[key], str) and app[key].endswith("Z"):
+                      app[key] = app[key].replace("Z", "+00:00")
+               
                 filtered.append(feature_copy)
                 break
 
@@ -187,9 +185,9 @@ def generate_map_html(geojson):
                 cursor: pointer;
                 font-weight: bold;
             }}
-            #save-btn {{ left: 10px; }}
-            #reset-btn {{ left: 80px; }}
-            #quit-btn {{ left: 170px; }}  /* spostato a destra per non coprire Reset */
+            #save-btn {{ left: 50px; }}
+            #reset-btn {{ left: 125px; }}
+            #quit-btn {{ left: 205px; }}  /* spostato a destra per non coprire Reset */
         </style>
     </head>
     <body>
@@ -209,16 +207,27 @@ def generate_map_html(geojson):
 
             document.getElementById('save-btn').onclick = function() {{
                 if (!drawnCircle) {{
-                    alert('Disegna prima un cerchio!');
+                    alert('Draw a circle before saving!');
                     return;
                 }}
                 const center = drawnCircle.getLatLng();
                 const radius = drawnCircle.getRadius();
+              
                 fetch("/filter", {{
                     method: "POST",
                     headers: {{ "Content-Type": "application/json" }},
                     body: JSON.stringify({{ lat: center.lat, lon: center.lng, radius: radius }})
-                }}).then(() => window.location.reload());
+                }})
+                .then(r => r.json())
+                .then(resp => {{
+                    if (resp.status === "empty") {{
+                       alert("No Zones to Save");
+                       return;
+                    }}
+                    window.location.reload();
+                }});
+
+
             }};
 
             document.getElementById('reset-btn').onclick = function() {{
@@ -248,12 +257,21 @@ def filter_route():
     global CURRENT_GEOJSON
 
     data = request.json
-    CURRENT_GEOJSON = filter_by_circle(
+    filtered = filter_by_circle(
         ORIGINAL_GEOJSON,
         data["lat"],
         data["lon"],
         data["radius"]
     )
+
+    # 🔴 NESSUNA ZONA TROVATA
+    if not filtered.get("features"):
+        return jsonify({
+            "status": "empty",
+            "message": "No Zones to Save"
+        }), 200
+
+    CURRENT_GEOJSON = filtered
 
     output_path = os.path.join(INPUT_DIR, FILTERED_FILE)
 
@@ -267,6 +285,7 @@ def filter_route():
         f.write(json_str)
 
     return jsonify({"status": "ok"})
+
 
 @app.route("/reset", methods=["POST"])
 def reset_route():
@@ -298,7 +317,7 @@ def quit_route():
 # ==================================================
 def choose_file_macos():
     script = '''
-    POSIX path of (choose file with prompt "Seleziona il file GeoJSON")
+    POSIX path of (choose file with prompt "Please select the JSON file")
     '''
     result = subprocess.run(
         ["osascript", "-e", script],
@@ -306,7 +325,7 @@ def choose_file_macos():
         text=True
     )
     if result.returncode != 0:
-        raise RuntimeError("Nessun file selezionato")
+        raise RuntimeError("No file selected")
     return result.stdout.strip()
 
 # ==================================================
