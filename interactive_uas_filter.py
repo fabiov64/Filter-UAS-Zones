@@ -200,9 +200,9 @@ def generate_map_html(geojson):
                 cursor: pointer;
                 font-weight: bold;
             }}
-            #save-btn {{ left: 10px; }}
-            #reset-btn {{ left: 80px; }}
-            #quit-btn {{ left: 170px; }}  /* spostato a destra per non coprire Reset */
+            #save-btn {{ left: 50px; }}
+            #reset-btn {{ left: 125px; }}
+            #quit-btn {{ left: 205px; }}  /* spostato a destra per non coprire Reset */
         </style>
     </head>
     <body>
@@ -220,19 +220,28 @@ def generate_map_html(geojson):
                 map.addLayer(drawnCircle);
             }});
 
+                  
             document.getElementById('save-btn').onclick = function() {{
-                if (!drawnCircle) {{
-                    alert('Disegna prima un cerchio!');
-                    return;
-                }}
-                const center = drawnCircle.getLatLng();
-                const radius = drawnCircle.getRadius();
-                fetch("/filter", {{
-                    method: "POST",
-                    headers: {{ "Content-Type": "application/json" }},
-                    body: JSON.stringify({{ lat: center.lat, lon: center.lng, radius: radius }})
-                }}).then(() => window.location.reload());
-            }};
+                 if (!drawnCircle) {{
+                     alert('Draw a circle before saving!');
+                     return;
+                 }}
+                 const center = drawnCircle.getLatLng();
+                 const radius = drawnCircle.getRadius();
+                 fetch("/filter", {{
+                     method: "POST",
+                     headers: {{ "Content-Type": "application/json" }},
+                     body: JSON.stringify({{ lat: center.lat, lon: center.lng, radius: radius }})
+                 }})
+                 .then(r => r.json())
+                 .then(resp => {{
+                     if (resp.status === "empty") {{
+                         alert("No Zones to Save");
+                         return;
+                     }}
+                     window.location.reload();
+                 }});
+}};
 
             document.getElementById('reset-btn').onclick = function() {{
                 fetch("/reset", {{ method: "POST" }}).then(() => window.location.reload());
@@ -240,7 +249,7 @@ def generate_map_html(geojson):
 
             document.getElementById('quit-btn').onclick = function() {{
                 fetch("/quit", {{ method: "POST" }}).then(() => {{
-                    alert('Chiusura in corso...');
+                    alert('Click to close the browser ...');
                     window.close();  // chiude il browser
                 }});
             }};
@@ -259,32 +268,35 @@ def index():
 @app.route("/filter", methods=["POST"])
 def filter_route():
     global CURRENT_GEOJSON
+
     data = request.json
-    CURRENT_GEOJSON = filter_by_circle(
+    filtered = filter_by_circle(
         ORIGINAL_GEOJSON,
         data["lat"],
         data["lon"],
         data["radius"]
     )
+
+    # 🔴 Nessuna zona trovata
+    if not filtered.get("features"):
+        return jsonify({
+            "status": "empty",
+            "message": "No Zones to Save"
+        }), 200
+
+    CURRENT_GEOJSON = filtered
+
     with open(FILTERED_FILE, "w", encoding="utf-8") as f:
-#       json.dump(CURRENT_GEOJSON, f, indent=2, ensure_ascii=False)
-#       json.dump(CURRENT_GEOJSON, f, ensure_ascii=False, separators=(",", ":")
-
-
         json_str = json.dumps(
-           CURRENT_GEOJSON,
-           ensure_ascii=False,
-           separators=(",", ":")
-         )
-
-        # newline dopo ogni feature
+            CURRENT_GEOJSON,
+            ensure_ascii=False,
+            separators=(",", ":")
+        )
         json_str = json_str.replace("},{", "},\n{")
- 
         f.write(json_str)
 
-#    )
-
     return jsonify({"status": "ok"})
+
 
 @app.route("/reset", methods=["POST"])
 def reset_route():
